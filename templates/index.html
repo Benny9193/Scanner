@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Scanner — Web Scraper</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+    h1 { margin-bottom: 0.25rem; }
+    .sub { opacity: 0.7; margin-top: 0; }
+    form { display: grid; gap: 0.5rem; margin: 1.5rem 0; }
+    input[type=text] { padding: 0.6rem; font-size: 1rem; border: 1px solid #888; border-radius: 6px; }
+    button { padding: 0.6rem 1rem; font-size: 1rem; border: 0; border-radius: 6px; background: #2563eb; color: white; cursor: pointer; }
+    button:hover { background: #1d4ed8; }
+    .row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.5rem; }
+    .card { border: 1px solid #8884; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+    .meta { font-size: 0.9rem; opacity: 0.8; }
+    details { margin-top: 0.75rem; }
+    summary { cursor: pointer; font-weight: 600; }
+    ul { padding-left: 1.25rem; }
+    code { background: #8881; padding: 1px 4px; border-radius: 3px; }
+    .err { color: #b00020; }
+  </style>
+</head>
+<body>
+  <h1>Scanner</h1>
+  <p class="sub">Paste a URL to scrape its title, headings, links, images, and text. Optional CSS selector returns matched element text.</p>
+
+  <form method="post">
+    <div class="row">
+      <input type="text" name="url" placeholder="https://example.com" value="{{ url }}" required>
+      <input type="text" name="selector" placeholder="CSS selector (optional, e.g. article h2)" value="{{ selector }}">
+      <button type="submit">Scrape</button>
+    </div>
+  </form>
+
+  {% if result %}
+    <div class="card">
+      {% if result.error %}
+        <p class="err"><strong>Error:</strong> {{ result.error }}</p>
+      {% else %}
+        <h2>{{ result.title or "(no title)" }}</h2>
+        <p class="meta">
+          <code>{{ result.url }}</code> &middot; status {{ result.status_code }}
+        </p>
+        {% if result.description %}<p>{{ result.description }}</p>{% endif %}
+
+        {% if result.matches %}
+          <details open>
+            <summary>Selector matches ({{ result.matches|length }})</summary>
+            <ul>{% for m in result.matches %}<li>{{ m }}</li>{% endfor %}</ul>
+          </details>
+        {% endif %}
+
+        {% if result.headings %}
+          <details>
+            <summary>Headings</summary>
+            {% for tag, items in result.headings.items() %}
+              <p><strong>{{ tag }}</strong></p>
+              <ul>{% for h in items %}<li>{{ h }}</li>{% endfor %}</ul>
+            {% endfor %}
+          </details>
+        {% endif %}
+
+        <details>
+          <summary>Links ({{ result.links|length }})</summary>
+          <ul>
+            {% for link in result.links[:100] %}
+              <li><a href="{{ link.href }}" target="_blank" rel="noopener noreferrer">{{ link.text or link.href }}</a></li>
+            {% endfor %}
+          </ul>
+        </details>
+
+        <details>
+          <summary>Images ({{ result.images|length }})</summary>
+          <ul>
+            {% for img in result.images[:50] %}
+              <li><code>{{ img.src }}</code>{% if img.alt %} — {{ img.alt }}{% endif %}</li>
+            {% endfor %}
+          </ul>
+        </details>
+
+        {% if result.text %}
+          <details>
+            <summary>Text preview</summary>
+            <p style="white-space: pre-wrap;">{{ result.text }}</p>
+          </details>
+        {% endif %}
+      {% endif %}
+    </div>
+  {% endif %}
+</body>
+</html>
