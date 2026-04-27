@@ -5,58 +5,129 @@
   <title>Scanner — Web Scraper</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    :root { color-scheme: light dark; }
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+    :root { color-scheme: light dark; --accent: #2563eb; --accent2: #1d4ed8; --border: #8884; --muted: #8888; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; max-width: 1080px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
     h1 { margin-bottom: 0.25rem; }
-    .sub { opacity: 0.7; margin-top: 0; }
-    form { display: grid; gap: 0.5rem; margin: 1.5rem 0; }
-    input[type=text] { padding: 0.6rem; font-size: 1rem; border: 1px solid #888; border-radius: 6px; }
-    button { padding: 0.6rem 1rem; font-size: 1rem; border: 0; border-radius: 6px; background: #2563eb; color: white; cursor: pointer; }
-    button:hover { background: #1d4ed8; }
-    .row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.5rem; }
-    .card { border: 1px solid #8884; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+    .sub { opacity: 0.75; margin-top: 0; }
+    form { display: grid; gap: 0.6rem; margin: 1.25rem 0; }
+    textarea, input[type=text] { padding: 0.6rem; font: inherit; border: 1px solid var(--muted); border-radius: 6px; background: transparent; color: inherit; }
+    textarea { min-height: 110px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95rem; }
+    .row { display: grid; grid-template-columns: 1fr 220px; gap: 0.6rem; }
+    .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+    button { padding: 0.55rem 1rem; font: inherit; border: 0; border-radius: 6px; background: var(--accent); color: white; cursor: pointer; }
+    button.secondary { background: transparent; color: inherit; border: 1px solid var(--muted); }
+    button:hover { filter: brightness(1.05); }
+    label.check { display: inline-flex; gap: 0.4rem; align-items: center; opacity: 0.85; }
+    .summary { width: 100%; border-collapse: collapse; margin-bottom: 1rem; font-size: 0.95rem; }
+    .summary th, .summary td { text-align: left; padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .summary th { background: #8881; }
+    .summary tr.err td { color: #b00020; }
+    .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; background: #8882; font-size: 0.8rem; }
+    .pill.ok { background: #16a34a33; color: #16a34a; }
+    .pill.bad { background: #b0002033; color: #b00020; }
+    .card { border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
     .meta { font-size: 0.9rem; opacity: 0.8; }
-    details { margin-top: 0.75rem; }
+    details { margin-top: 0.6rem; }
     summary { cursor: pointer; font-weight: 600; }
     ul { padding-left: 1.25rem; }
-    code { background: #8881; padding: 1px 4px; border-radius: 3px; }
+    code { background: #8881; padding: 1px 4px; border-radius: 3px; font-size: 0.9em; }
     .err { color: #b00020; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem 1.5rem; }
+    @media (max-width: 700px) { .row, .grid2 { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
   <h1>Scanner</h1>
-  <p class="sub">Paste a URL to scrape its title, headings, links, images, and text. Optional CSS selector returns matched element text.</p>
+  <p class="sub">Paste one URL per line. Extracts title, meta, OG/Twitter, headings, links, images, text and (optionally) CSS-selector matches. Runs concurrently.</p>
 
-  <form method="post">
+  <form method="post" id="scrape-form">
+    <textarea name="urls" placeholder="https://example.com&#10;https://another.com" required>{{ urls_text }}</textarea>
     <div class="row">
-      <input type="text" name="url" placeholder="https://example.com" value="{{ url }}" required>
       <input type="text" name="selector" placeholder="CSS selector (optional, e.g. article h2)" value="{{ selector }}">
+      <label class="check"><input type="checkbox" name="respect_robots" value="1" {% if respect_robots %}checked{% endif %}> Respect robots.txt</label>
+    </div>
+    <div class="actions">
       <button type="submit">Scrape</button>
+      <button type="submit" class="secondary" formaction="/download/json">Download JSON</button>
+      <button type="submit" class="secondary" formaction="/download/csv">Download CSV</button>
+      {% if results %}<span class="meta">{{ results|length }} result{{ 's' if results|length != 1 }}</span>{% endif %}
     </div>
   </form>
 
-  {% if result %}
-    <div class="card">
-      {% if result.error %}
-        <p class="err"><strong>Error:</strong> {{ result.error }}</p>
-      {% else %}
-        <h2>{{ result.title or "(no title)" }}</h2>
-        <p class="meta">
-          <code>{{ result.url }}</code> &middot; status {{ result.status_code }}
-        </p>
-        {% if result.description %}<p>{{ result.description }}</p>{% endif %}
+  {% if results and results|length > 1 %}
+    <table class="summary">
+      <thead>
+        <tr><th>#</th><th>URL</th><th>Status</th><th>Title</th><th>Words</th><th>Links</th><th>Images</th><th>Time</th></tr>
+      </thead>
+      <tbody>
+        {% for r in results %}
+          <tr class="{{ 'err' if r.error }}">
+            <td>{{ loop.index }}</td>
+            <td><a href="#r{{ loop.index }}">{{ r.url }}</a></td>
+            <td>
+              {% if r.status_code %}
+                <span class="pill {{ 'ok' if r.status_code < 400 else 'bad' }}">{{ r.status_code }}</span>
+              {% else %}
+                <span class="pill bad">err</span>
+              {% endif %}
+            </td>
+            <td>{{ r.title or '' }}</td>
+            <td>{{ r.word_count }}</td>
+            <td>{{ (r.internal_links|length) + (r.external_links|length) }}</td>
+            <td>{{ r.images|length }}</td>
+            <td class="meta">{{ r.elapsed_ms }} ms</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
 
-        {% if result.matches %}
+  {% for r in results %}
+    <div class="card" id="r{{ loop.index }}">
+      {% if r.error %}
+        <p class="err"><strong>Error:</strong> {{ r.error }}</p>
+        <p class="meta"><code>{{ r.url }}</code></p>
+      {% else %}
+        <h2 style="margin: 0 0 0.25rem 0;">{{ r.title or "(no title)" }}</h2>
+        <p class="meta">
+          <code>{{ r.url }}</code>
+          &middot; <span class="pill {{ 'ok' if r.status_code < 400 else 'bad' }}">{{ r.status_code }}</span>
+          &middot; {{ r.elapsed_ms }} ms
+          {% if r.language %} &middot; lang={{ r.language }}{% endif %}
+          &middot; {{ r.word_count }} words
+        </p>
+        {% if r.description %}<p>{{ r.description }}</p>{% endif %}
+
+        <div class="grid2 meta">
+          {% if r.canonical %}<div><strong>Canonical:</strong> <code>{{ r.canonical }}</code></div>{% endif %}
+          {% if r.favicon %}<div><strong>Favicon:</strong> <code>{{ r.favicon }}</code></div>{% endif %}
+        </div>
+
+        {% if r.matches %}
           <details open>
-            <summary>Selector matches ({{ result.matches|length }})</summary>
-            <ul>{% for m in result.matches %}<li>{{ m }}</li>{% endfor %}</ul>
+            <summary>Selector matches ({{ r.matches|length }})</summary>
+            <ul>{% for m in r.matches %}<li>{{ m }}</li>{% endfor %}</ul>
           </details>
         {% endif %}
 
-        {% if result.headings %}
+        {% if r.open_graph %}
+          <details>
+            <summary>Open Graph ({{ r.open_graph|length }})</summary>
+            <ul>{% for k, v in r.open_graph.items() %}<li><strong>{{ k }}:</strong> {{ v }}</li>{% endfor %}</ul>
+          </details>
+        {% endif %}
+
+        {% if r.twitter %}
+          <details>
+            <summary>Twitter ({{ r.twitter|length }})</summary>
+            <ul>{% for k, v in r.twitter.items() %}<li><strong>{{ k }}:</strong> {{ v }}</li>{% endfor %}</ul>
+          </details>
+        {% endif %}
+
+        {% if r.headings %}
           <details>
             <summary>Headings</summary>
-            {% for tag, items in result.headings.items() %}
+            {% for tag, items in r.headings.items() %}
               <p><strong>{{ tag }}</strong></p>
               <ul>{% for h in items %}<li>{{ h }}</li>{% endfor %}</ul>
             {% endfor %}
@@ -64,31 +135,40 @@
         {% endif %}
 
         <details>
-          <summary>Links ({{ result.links|length }})</summary>
+          <summary>Internal links ({{ r.internal_links|length }})</summary>
           <ul>
-            {% for link in result.links[:100] %}
+            {% for link in r.internal_links[:100] %}
               <li><a href="{{ link.href }}" target="_blank" rel="noopener noreferrer">{{ link.text or link.href }}</a></li>
             {% endfor %}
           </ul>
         </details>
 
         <details>
-          <summary>Images ({{ result.images|length }})</summary>
+          <summary>External links ({{ r.external_links|length }})</summary>
           <ul>
-            {% for img in result.images[:50] %}
+            {% for link in r.external_links[:100] %}
+              <li><a href="{{ link.href }}" target="_blank" rel="noopener noreferrer">{{ link.text or link.href }}</a></li>
+            {% endfor %}
+          </ul>
+        </details>
+
+        <details>
+          <summary>Images ({{ r.images|length }})</summary>
+          <ul>
+            {% for img in r.images[:50] %}
               <li><code>{{ img.src }}</code>{% if img.alt %} — {{ img.alt }}{% endif %}</li>
             {% endfor %}
           </ul>
         </details>
 
-        {% if result.text %}
+        {% if r.text %}
           <details>
             <summary>Text preview</summary>
-            <p style="white-space: pre-wrap;">{{ result.text }}</p>
+            <p style="white-space: pre-wrap;">{{ r.text }}</p>
           </details>
         {% endif %}
       {% endif %}
     </div>
-  {% endif %}
+  {% endfor %}
 </body>
 </html>
